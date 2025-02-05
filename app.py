@@ -340,7 +340,6 @@ def profile(username):
         total_downvotes=total_downvotes
     )
 
-
 # @app.route('/edit_post/<post_id>', methods=['GET', 'POST'])
 # def edit_post(post_id):
 #     if 'username' not in session:
@@ -394,12 +393,45 @@ def notifications_page():
     all_notifications = notifications.find().sort('timestamp', -1)
     return render_template('notification.html', notifications=all_notifications)
 
+# @app.route('/dashboard')
+# def dashboard():
+#     if not is_admin() and not is_moderator():
+#         flash('You do not have permission to access this page.', 'error')
+#         return redirect(url_for('home'))
+#     return render_template('dashboard.html')
+
 @app.route('/dashboard')
 def dashboard():
-    if not is_admin() and not is_moderator():
-        flash('You do not have permission to access this page.', 'error')
-        return redirect(url_for('home'))
-    return render_template('dashboard.html')
+    # Post Statistics
+    post_stats = {
+        'approved': posts.count_documents({'status': 'approved'}),
+        'pending': posts.count_documents({'status': 'pending'}),
+        'rejected': posts.count_documents({'status': 'rejected'}),
+        'total': posts.count_documents({})
+    }
+
+    # User Activity
+    user_activity = {
+        'comments': comments.count_documents({}),
+        'upvotes': sum(post.get('upvotes', 0) for post in posts.find()),
+        'downvotes': sum(post.get('downvotes', 0) for post in posts.find())
+    }
+
+    # Topics and Users
+    approved_topics = list(posts.find({'status': 'approved'}, {'title': 1})) or []
+    all_users = list(users.find({}, {'username': 1, 'role': 1})) or []
+
+    # Pending Posts (for moderators)
+    pending_posts = list(posts.find({'status': 'pending'})) if is_moderator() else []
+
+    return render_template(
+        'dashboard.html',
+        post_stats=post_stats,
+        user_activity=user_activity,
+        approved_topics=approved_topics,
+        all_users=all_users,
+        pending_posts=pending_posts
+    )
 
 
 @app.route('/assign_moderator/<username>')
@@ -419,15 +451,39 @@ def assign_moderator(username):
 
 
 
-@app.route('/dashboard/assign_moderator')
+# @app.route('/dashboard/assign_moderator')
+# def dashboard_assign_moderator():
+#     if not is_admin():
+#         flash('You do not have permission to access this page.', 'error')
+#         return redirect(url_for('home'))
+    
+#     # Fetch all users
+#     all_users = users.find()
+#     return render_template('dashboard_assign_moderator.html', users=all_users)
+
+
+@app.route('/dashboard/assign_moderator', methods=['POST'])
 def dashboard_assign_moderator():
     if not is_admin():
-        flash('You do not have permission to access this page.', 'error')
-        return redirect(url_for('home'))
-    
-    # Fetch all users
-    all_users = users.find()
-    return render_template('dashboard_assign_moderator.html', users=all_users)
+        flash('You do not have permission to perform this action.', 'error')
+        return redirect(url_for('dashboard'))
+
+    username = request.form.get('username')
+    if not username:
+        flash('No username provided.', 'error')
+        return redirect(url_for('dashboard'))
+
+    # Debug: Print the username and check if it exists in the database
+    print(f"Attempting to assign moderator role to: {username}")
+    user = users.find_one({'username': username})
+    if not user:
+        flash(f'User "{username}" not found.', 'error')
+        return redirect(url_for('dashboard'))
+
+    # Update the user's role to moderator
+    users.update_one({'username': username}, {'$set': {'role': 'moderator'}})
+    flash(f'{username} has been assigned as a moderator.', 'success')
+    return redirect(url_for('dashboard'))
 
 @app.route('/dashboard/approve_reject')
 def dashboard_approve_reject():
@@ -487,32 +543,97 @@ def approve_post(post_id):
 #     flash('Post rejected and deleted successfully!', 'success')
 #     return redirect(url_for('dashboard_topics'))
 
+# @app.route('/reject_post/<post_id>')
+# def reject_post(post_id):
+#     if not is_moderator():
+#         flash('You do not have permission to perform this action.', 'error')
+#         return redirect(url_for('home'))
+    
+#     post = posts.find_one({'_id': ObjectId(post_id)})
+#     posts.delete_one({'_id': ObjectId(post_id)})
+
+#     # Add notification for post deletion
+#     add_notification(f"{session['username']} deleted the post: {post['title']}")
+
+#     flash('Post rejected and deleted successfully!', 'success')
+#     return redirect(url_for('dashboard_topics'))
+
+
+# Single Post Rejection
 @app.route('/reject_post/<post_id>')
 def reject_post(post_id):
     if not is_moderator():
-        flash('You do not have permission to perform this action.', 'error')
+        flash('Permission denied.', 'error')
         return redirect(url_for('home'))
-    
+
+    # Update post status to 'rejected' instead of deleting
+    posts.update_one(
+        {'_id': ObjectId(post_id)},
+        {'$set': {'status': 'rejected'}}
+    )
+
+    # Add notification
     post = posts.find_one({'_id': ObjectId(post_id)})
-    posts.delete_one({'_id': ObjectId(post_id)})
+    add_notification(f"{session['username']} rejected the post: {post['title']}")
 
-    # Add notification for post deletion
-    add_notification(f"{session['username']} deleted the post: {post['title']}")
-
-    flash('Post rejected and deleted successfully!', 'success')
+    flash('Post rejected successfully!', 'success')
     return redirect(url_for('dashboard_topics'))
+
+# Bulk Rejection
+@app.route('/bulk_actions', methods=['POST'])
+def bulk_actions():
+    if not is_moderator():
+        flash('Permission denied.', 'error')
+        return redirect(url_for('dashboard'))
+
+    post_ids = request.form.getlist('post_ids')
+    action = request.form.get('action')
+
+    if action == 'approve':
+        for pid in post_ids:
+            posts.update_one(
+                {'_id': ObjectId(pid)},
+                {'$set': {'status': 'approved'}}
+            )
+        flash(f'Approved {len(post_ids)} posts.', 'success')
+    elif action == 'reject':
+        for pid in post_ids:
+            posts.update_one(
+                {'_id': ObjectId(pid)},
+                {'$set': {'status': 'rejected'}}
+            )
+        flash(f'Rejected {len(post_ids)} posts.', 'success')
+
+    return redirect(url_for('dashboard'))
+
 
 
 @app.route('/view_topic/<post_id>')
 def view_topic(post_id):
     if 'username' not in session:
         return redirect(url_for('login'))
+    
     post = posts.find_one({'_id': ObjectId(post_id)})
     if not post:
         flash('Post not found', 'error')
         return redirect(url_for('home'))
+    
     post_comments = comments.find({'post_id': ObjectId(post_id)})
     return render_template('view_topic.html', post=post, comments=post_comments)
+
+
+@app.route('/post/<post_id>')
+def view_post(post_id):
+    post = posts.find_one({'_id': ObjectId(post_id)})
+    if not post:
+        flash('Post not found.', 'error')
+        return redirect(url_for('dashboard'))
+
+    # Fetch comments for the post
+    post_comments = list(comments.find({'post_id': ObjectId(post_id)}))
+
+    return render_template('view_post.html', post=post, comments=post_comments)
+
 
 @app.route('/search', methods=['POST'])
 def search():
