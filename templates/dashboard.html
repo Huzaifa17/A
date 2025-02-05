@@ -1,0 +1,15 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>Dashboard</h2>
+
+<ul>
+    <li><a href="{{ url_for('dashboard_profiles') }}">Profiles</a></li>
+    <li><a href="{{ url_for('dashboard_topics') }}">Topics</a></li>
+    {% if is_admin() %}
+    <li><a href="{{ url_for('dashboard_assign_moderator') }}">Assign Moderator</a></li>
+    {% elif is_moderator() %}
+    <li><a href="{{ url_for('dashboard_approve_reject') }}">Approve/Reject Posts</a></li>
+    {% endif %}
+</ul>
+{% endblock %}

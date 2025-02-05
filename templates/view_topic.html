@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2>{{ post.title }}</h2>
+<p>{{ make_links_clickable(post.content) | safe }}</p>
+<p>Posted by: <a href="{{ url_for('profile', username=post.username) }}">{{ post.username }}</a></p>
+
+{% if post.attachment_urls %}
+<h4>Attachments:</h4>
+<ul>
+    {% for attachment_url in post.attachment_urls %}
+    <li><a href="{{ attachment_url }}" target="_blank">View Attachment</a></li>
+    {% endfor %}
+</ul>
+{% endif %}
+
+<p>Upvotes: {{ post.upvotes | default(0) }} | Downvotes: {{ post.downvotes | default(0) }}</p>
+<a href="{{ url_for('upvote', post_id=post._id) }}">Upvote</a> |
+<a href="{{ url_for('downvote', post_id=post._id) }}">Downvote</a>
+
+<h3>Comments</h3>
+<ul>
+    {% for comment in comments %}
+    <li>
+        <strong>{{ comment.username }}:</strong> {{ make_links_clickable(comment.comment) | safe }}
+        {% if comment.attachment_urls %}
+        <h5>Attachments:</h5>
+        <ul>
+            {% for attachment_url in comment.attachment_urls %}
+            <li><a href="{{ attachment_url }}" target="_blank">View Attachment</a></li>
+            {% endfor %}
+        </ul>
+        {% endif %}
+    </li>
+    {% endfor %}
+</ul>
+
+<form method="POST" action="{{ url_for('add_comment', post_id=post._id) }}" enctype="multipart/form-data">
+    <textarea name="comment" placeholder="Add a comment..." required></textarea>
+    <input type="file" name="attachments" multiple>
+    <button type="submit">Add Comment</button>
+</form>
+{% endblock %}
